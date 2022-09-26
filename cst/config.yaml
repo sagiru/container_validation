@@ -1,0 +1,42 @@
+---
+schemaVersion: 2.0.0
+commandTests:
+  - name: "http_version"
+    command: "httpd"
+    args: ["-v"]
+    expectedOutput: ["Server version: Apache/2.4.53"]
+fileExistenceTests:
+  - name: "Ensure /etc/apache2/httpd.conf exists"
+    path: '/etc/apache2/httpd.conf'
+    shouldExist: true
+    permissions: 'Lrwxrwxrwx'
+    uid: 0
+    gid: 0
+  - name: "Ensure /etc/apache2/ exists"
+    path: '/etc/apache2'
+    shouldExist: true
+    permissions: 'drwxr-xr-x'
+    uid: 0
+    gid: 0
+  - name: "Ensure /usr/local/apache2/logs/ is readable"
+    path: '/usr/local/apache2/logs'
+    shouldExist: true
+    permissions: 'drwxr-xr-x'
+    uid: 33 
+fileContentTests:
+  - name: 'Ensure apache only listen to 8080'
+    path: '/etc/apache2/httpd.conf'
+    expectedContents: ['Listen 8080']
+    excludedContents: ['^Listen 80$']
+metadataTest:
+  env:
+   - key: 'VERSION'
+     value: '2.4.53'
+  labels:
+    - key: 'kostenstelle'
+      value: '^zuTeuer[0-9]{4}$'
+      isRegex: true
+  exposedPorts: ['8080']
+  cmd: ['httpd-foreground']
+  entrypoint: []
+  user: 'www-data'
