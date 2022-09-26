@@ -1,2 +1,5 @@
 .*.sw*
 cst-report.xml
+.*cache
+**/__pycache__/*
+.venv
