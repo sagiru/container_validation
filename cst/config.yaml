@@ -6,7 +6,7 @@ commandTests:
     args: ["-v"]
     expectedOutput: ["Server version: Apache/2.4.53"]
 fileExistenceTests:
-  - name: "Ensure /etc/apache2/httpd.conf exists"
+  - name: "Ensure /etc/apache2/httpd.conf is linked from /usr/local/apache2/conf/"
     path: '/etc/apache2/httpd.conf'
     shouldExist: true
     permissions: 'Lrwxrwxrwx'
@@ -24,7 +24,7 @@ fileExistenceTests:
     permissions: 'drwxr-xr-x'
     uid: 33 
 fileContentTests:
-  - name: 'Ensure apache only listen to 8080'
+  - name: 'Ensure Listen 8080 is configured'
     path: '/etc/apache2/httpd.conf'
     expectedContents: ['Listen 8080']
     excludedContents: ['^Listen 80$']
