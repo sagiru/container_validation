@@ -6,7 +6,7 @@ commandTests:
     args: ["-v"]
     expectedOutput: ["Server version: Apache/2.4.53"]
 fileExistenceTests:
-  - name: "Ensure /etc/apache2/httpd.conf is linked from /usr/local/apache2/conf/"
+  - name: "Ensure /etc/apache2/httpd.conf is linked from /usr/local/apache2/conf/httpd.conf"
     path: '/etc/apache2/httpd.conf'
     shouldExist: true
     permissions: 'Lrwxrwxrwx'
