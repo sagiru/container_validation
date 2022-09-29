@@ -1,0 +1,6 @@
+schemaVersion: 2.0.0
+commandTests:
+  - name: "Ensure httpd version"
+    command: httpd
+    args: ['-v']
+    expectedOutput: ['.*Apache/2.4.53']

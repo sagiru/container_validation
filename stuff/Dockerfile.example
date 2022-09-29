@@ -1,0 +1,220 @@
+FROM debian:buster-slim
+
+LABEL maintainer.1="xxxx" \
+    version="1.0" \
+    description="OGS PHP Application container"
+
+# ======================
+# Set Arguments
+
+# port frontend 8181
+# port admin 8282
+# (port angular 8080)
+# ======================
+ARG ogs_apache_port=8080
+ARG ogs_apache_port_ssl=8443
+ARG ogs_deployment_type=dev
+
+# ======================
+# Set environments
+# ======================
+ENV OGS_DEPLOYMENT_TYPE=ogs_deployment_type \
+    PHP_VERSION=php7.3 \
+    PHP_VERSION_SHORT=7.3 \
+    PHP_OCI8=oci8-2.2.0 \
+    PHP_PDO=pdo_oci \
+    PHP_IMAGICK=imagick-3.4.4 \
+    PHP_MEMORY_LIMIT=1792M \
+    PHP_COOKIE_HTTPONLY=1 \
+    PHP_ALLOW_URL_OPEN=Off \
+    PHP_MAX_EXECUTION_TIME=90\
+    OCI_MAJOR=19.5 \
+    OCI_BASIC=oracle-instantclient19.5-basic-19.5.0.0.0-1.x86_64.rpm \
+    OCI_TOOLS=oracle-instantclient19.5-tools-19.5.0.0.0-1.x86_64.rpm \
+    OCI_SQL=oracle-instantclient19.5-sqlplus-19.5.0.0.0-1.x86_64.rpm \
+    OCI_DEVEL=oracle-instantclient19.5-devel-19.5.0.0.0-1.x86_64.rpm \
+    APACHE_PORT=$ogs_apache_port \
+    APACHE_PORT_SSL=$ogs_apache_port_ssl \
+    APACHE_RUN_USER=www-data \
+    APACHE_RUN_GROUP=0 \
+    APACHE_LOG_DIR=/var/log/apache2 \
+    PDFTK=pdftk-java_3.2.2-1_all
+
+# ======================
+# Set the timezone to our timezone for a correct time
+# ======================
+RUN ln -fs /usr/share/zoneinfo/Europe/Berlin /etc/localtime \
+    && dpkg-reconfigure -f noninteractive tzdata
+
+# ======================
+# Basic stuff for easier working in container
+# ======================
+COPY ./docker/os-setup/.bashrc /root/.bashrc
+COPY ./docker/os-setup/.profile /root/.profile
+
+# Fixes openjdk11 install
+RUN mkdir -p /usr/share/man/man1mkdir -p /usr/share/man/man1
+
+# ======================
+# Apache & PHP incl. extension and other packages which are necessary
+# ======================
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    ca-certificates-java \
+    apache2 \
+    ${PHP_VERSION} \
+    ${PHP_VERSION}-dev \
+    php-pear \
+    ${PHP_VERSION}-curl \
+    ${PHP_VERSION}-dom \
+    ${PHP_VERSION}-gd \
+    ${PHP_VERSION}-gmp \
+    ${PHP_VERSION}-intl \
+    ${PHP_VERSION}-ldap \
+    ${PHP_VERSION}-mbstring \
+    ${PHP_VERSION}-mysql \
+    ${PHP_VERSION}-soap \
+    ${PHP_VERSION}-xml \
+    ${PHP_VERSION}-xmlrpc \
+    ${PHP_VERSION}-xsl \
+    zlib1g-dev \
+    # pdftk \
+    alien \
+    dos2unix \
+    libaio1 \
+    ghostscript \
+    libgs-dev \
+    libgmp-dev \
+    imagemagick \
+    libmagickwand-dev \
+    libmagickcore-dev \
+    && apt-get -y clean \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /usr/share/doc/*
+
+RUN if [ "$ogs_deployment_type" = "dev" ] ; then echo 'ogs_deployment_type false'; else echo 'ogs_deployment_type true'; fi
+RUN if [ "$OGS_DEPLOYMENT_TYPE" = "dev" ] ; then echo 'OGS_DEPLOYMENT_TYPE false'; else echo 'OGS_DEPLOYMENT_TYPE true'; fi
+RUN if [ "$OGS_DEPLOYMENT_TYPE" = "dev" ] ; then apt-get install -y --no-install-recommends nano vim ; fi
+
+# ======================
+# Debian Package local install due to bug in provided pdftk Version in buster-slim distribution
+# ======================
+COPY ./docker/deb-setup/${PDFTK}.deb /var/tmp/${PDFTK}.deb
+
+RUN apt-get update && apt-get install -y /var/tmp/${PDFTK}.deb
+
+# ======================
+# PHP Imagick installation on Debian
+# ======================
+COPY ./docker/php-setup/${PHP_IMAGICK}.tgz /drivers/${PHP_IMAGICK}.tgz
+
+RUN tar -zxf /drivers/${PHP_IMAGICK}.tgz \
+      && cd ${PHP_IMAGICK} ; phpize \
+      && cd ${PHP_IMAGICK} ; ./configure --with-imagick=/opt/local \
+      && cd ${PHP_IMAGICK} ; make \
+      && cd ${PHP_IMAGICK} ; make install \
+      && echo 'extension=imagick.so' >> /etc/php/${PHP_VERSION_SHORT}/apache2/php.ini \
+      && echo 'extension=imagick.so' >> /etc/php/${PHP_VERSION_SHORT}/cli/php.ini \
+      && sed -ri -e 's!<policy domain=\"coder\" rights=\"none\" pattern=\"PDF\" />!<policy domain=\"coder\" rights=\"read|write\" pattern=\"PDF\" />!g' /etc/ImageMagick-6/policy.xml
+
+# ======================
+# PHP ini adjust app settings on Debian
+# ======================
+RUN sed -ri -e 's!upload_max_filesize\ =\ 2M!upload_max_filesize\ =\ 20M!g' /etc/php/${PHP_VERSION_SHORT}/apache2/php.ini \
+    &&  sed -ri -e 's!upload_max_filesize\ =\ 2M!upload_max_filesize\ =\ 20M!g' /etc/php/${PHP_VERSION_SHORT}/cli/php.ini
+
+RUN sed -ri -e 's!post_max_size\ =\ 8M!post_max_size\ =\ 21M!g' /etc/php/${PHP_VERSION_SHORT}/apache2/php.ini \
+    &&  sed -ri -e 's!post_max_size\ =\ 8M!post_max_size\ =\ 21M!g' /etc/php/${PHP_VERSION_SHORT}/cli/php.ini
+
+# ======================
+# OrcaleInstantClient installation on Debian
+# ======================
+COPY ./docker/oracle-setup/${OCI_BASIC} /drivers/${OCI_BASIC}
+COPY ./docker/oracle-setup/${OCI_TOOLS} /drivers/${OCI_TOOLS}
+COPY ./docker/oracle-setup/${OCI_SQL} /drivers/${OCI_SQL}
+COPY ./docker/oracle-setup/${OCI_DEVEL} /drivers/${OCI_DEVEL}
+
+RUN alien -i /drivers/${OCI_BASIC} \
+    && alien -i /drivers/${OCI_TOOLS} \
+    && alien -i /drivers/${OCI_SQL} \
+    && alien -i /drivers/${OCI_DEVEL}
+
+ENV LD_LIBRARY_PATH=/usr/lib/oracle/${OCI_MAJOR}/client64/lib:$LD_LIBRARY_PATH \
+    ORACLE_HOME=/usr/lib/oracle/${OCI_MAJOR}/client64 \
+    PATH=$PATH:$ORACLE_HOME/bin
+
+RUN ldconfig
+
+# ======================
+# PHP oci8 installation on Debian
+# ======================
+COPY ./docker/oracle-setup/${PHP_OCI8}.tgz /drivers/${PHP_OCI8}.tgz
+RUN tar -zxf /drivers/${PHP_OCI8}.tgz \
+    && cd ${PHP_OCI8} ; phpize \
+    && cd ${PHP_OCI8} ; ./configure --with-oci8=shared,instantclient,/usr/lib/oracle/${OCI_MAJOR}/client64/lib \
+    && cd ${PHP_OCI8} ; make install \
+    && echo 'extension=oci8.so' >> /etc/php/${PHP_VERSION_SHORT}/apache2/php.ini \
+    && echo 'extension=oci8.so' >> /etc/php/${PHP_VERSION_SHORT}/cli/php.ini
+
+# ======================
+# PHP pdo oci installation on Debian
+# ======================
+COPY ./docker/oracle-setup/${PHP_PDO} /drivers/${PHP_PDO}
+
+RUN cd /drivers/${PHP_PDO} ; phpize \
+    && cd /drivers/${PHP_PDO} ; ./configure --with-pdo-oci=instantclient,/usr/lib/oracle/${OCI_MAJOR}/client64/lib \
+    && cd /drivers/${PHP_PDO} ; make install \
+    && echo 'extension=pdo_oci.so' >> /etc/php/${PHP_VERSION_SHORT}/apache2/php.ini \
+    && echo 'extension=pdo_oci.so' >> /etc/php/${PHP_VERSION_SHORT}/cli/php.ini
+
+# ======================
+# PHP CLI Setup
+# ======================
+RUN echo 'log_errors=off' >> /etc/php/${PHP_VERSION_SHORT}/cli/php.ini \
+    && echo 'display_errors=off' >> /etc/php/${PHP_VERSION_SHORT}/cli/php.ini \
+    && echo 'error_reporting=0' >> /etc/php/${PHP_VERSION_SHORT}/cli/php.ini
+
+# ======================
+# PHP Logging Setup
+# ======================
+RUN echo 'error_log=/dev/stderr' >> /etc/php/${PHP_VERSION_SHORT}/apache2/php.ini \
+    && echo 'error_log=/dev/stderr' >> /etc/php/${PHP_VERSION_SHORT}/cli/php.ini
+
+# ======================
+# PHP Additional Settings
+# ======================
+RUN echo "date.timezone = 'Europe/Berlin'" >> /etc/php/${PHP_VERSION_SHORT}/apache2/php.ini \
+   && echo "date.timezone = 'Europe/Berlin'" >> /etc/php/${PHP_VERSION_SHORT}/cli/php.ini
+
+# ======================
+# PHP ini adjust memory_limit to be below (1/8) the cluster resource limits
+# ======================
+RUN sed -E -i -e 's/memory_limit = .*/memory_limit = '"${PHP_MEMORY_LIMIT}"'/' /etc/php/${PHP_VERSION_SHORT}/apache2/php.ini \
+    &&  sed -E -i -e 's/memory_limit = .*/memory_limit = '"${PHP_MEMORY_LIMIT}"'/' /etc/php/${PHP_VERSION_SHORT}/cli/php.ini
+
+# ======================
+# PHP Cookie Settings
+# ======================
+RUN sed -E -i -e 's/session.cookie_httponly =.*/session.cookie_httponly = '"${PHP_COOKIE_HTTPONLY}"'/' /etc/php/${PHP_VERSION_SHORT}/apache2/php.ini \
+    &&  sed -E -i -e 's/session.cookie_httponly =.*/session.cookie_httponly = '"${PHP_COOKIE_HTTPONLY}"'/' /etc/php/${PHP_VERSION_SHORT}/cli/php.ini
+
+# ======================
+# PHP Additional Settings
+# ======================
+RUN sed -E -i -e 's/allow_url_fopen = .*/allow_url_fopen = '"${PHP_ALLOW_URL_OPEN}"'/' /etc/php/${PHP_VERSION_SHORT}/apache2/php.ini \
+    &&  sed -E -i -e 's/allow_url_fopen = .*/allow_url_fopen = '"${PHP_ALLOW_URL_OPEN}"'/' /etc/php/${PHP_VERSION_SHORT}/cli/php.ini
+
+# ======================
+# PHP Additional Settings
+# ======================
+RUN sed -E -i -e 's/max_execution_time = .*/max_execution_time = '"${PHP_MAX_EXECUTION_TIME}"'/' /etc/php/${PHP_VERSION_SHORT}/apache2/php.ini \
+    &&  sed -E -i -e 's/max_execution_time = .*/max_execution_time = '"${PHP_MAX_EXECUTION_TIME}"'/' /etc/php/${PHP_VERSION_SHORT}/cli/php.ini
+
+# ======================
+# Apache2 Setup
+# ======================
+RUN rm -rf /etc/apache2/sites-available/* \
+    && rm -rf /etc/apache2/sites-enabled/* \
+    && rm /etc/ldap/ldap.conf
+
+COPY ./docker/apache2-setup/sites-available /etc/apache2/sites-available
+COPY ./docker/apache2-setup/ldap.conf /etc/ldap
